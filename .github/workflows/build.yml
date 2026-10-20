@@ -19,11 +19,24 @@ jobs:
           wget -q https://apt.llvm.org/llvm.sh
           sudo bash llvm.sh 21
           sudo apt-get update
-          sudo apt-get install -y ninja-build glslang-tools pkg-config \
-            llvm-21-dev libclang-21-dev clang-21 libclc-21-dev libllvmspirvlib-21-dev
+          sudo apt-get install -y ninja-build glslang-tools pkg-config cmake \
+            llvm-21-dev libclang-21-dev libclang-cpp21-dev clang-21 libclc-21-dev
           pip3 install --user --break-system-packages "meson>=1.4" mako packaging pyyaml
           echo "$HOME/.local/bin" >> $GITHUB_PATH
           echo "/usr/lib/llvm-21/bin" >> $GITHUB_PATH
+
+      - name: SPIRV-LLVM-Translator for LLVM 21
+        # apt.llvm.org has no libllvmspirvlib-21-dev, so build it (Mesa finds it through pkg-config)
+        run: |
+          git clone --depth 1 -b llvm_release_210 https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git /tmp/spirv-llvm
+          cmake -S /tmp/spirv-llvm -B /tmp/spirv-llvm/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLVM_DIR=/usr/lib/llvm-21/lib/cmake/llvm \
+            -DLLVM_SPIRV_INCLUDE_TESTS=OFF \
+            -DCMAKE_INSTALL_PREFIX=/usr/local
+          ninja -C /tmp/spirv-llvm/build
+          sudo ninja -C /tmp/spirv-llvm/build install
+          pkg-config --modversion LLVMSPIRVLib
 
       - name: Android NDK r29
         id: ndk
