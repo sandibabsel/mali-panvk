@@ -1,0 +1,41 @@
+name: build-panvk-g52
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: LLVM 21 + build tools
+        run: |
+          wget -q https://apt.llvm.org/llvm.sh
+          sudo bash llvm.sh 21
+          sudo apt-get update
+          sudo apt-get install -y ninja-build glslang-tools pkg-config \
+            llvm-21-dev libclang-21-dev clang-21 libclc-21-dev libllvmspirvlib-21-dev
+          pip3 install --user --break-system-packages "meson>=1.4" mako packaging pyyaml
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          echo "/usr/lib/llvm-21/bin" >> $GITHUB_PATH
+
+      - name: Android NDK r29
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r29
+          add-to-path: false
+
+      - name: Build
+        run: ./build.sh "${{ steps.ndk.outputs.ndk-path }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: panvk-bifrost-driver
+          path: dist/*.zip
