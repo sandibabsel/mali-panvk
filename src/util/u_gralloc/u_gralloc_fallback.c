@@ -19,6 +19,7 @@
 #include <dlfcn.h>
 #include <errno.h>
 #include <inttypes.h>
+#include <stdio.h>
 #include <string.h>
 
 struct fallback_gralloc {
@@ -258,9 +259,32 @@ arm_gralloc_get_buffer_info(struct u_gralloc_buffer_handle *hnd,
           ps >= pw * bpp)
          plane0 = o;
    }
+   /* Other MediaTek allocator builds (TECNO LG6n, MT6768, Android 12) move plane_info by a few
+    * ints. Look for the {byte stride, width, height} triple elsewhere, with tight bounds (the
+    * allocator aligns to at most 256 pixels) so that unrelated ints don't match by chance. */
+   for (int o = ARM_HND_ALLOC_FORMAT_BACK + 2; plane0 < 0 && m + o + 2 * ARM_HND_PLANE_INTS <= total;
+        o++) {
+      const uint32_t ps = h[o], pw = h[o + 1], ph = h[o + 2];
+      if (bpp && width && pw >= width && pw <= width + 256 && ph >= height &&
+          ph <= height + 256 && ps >= pw * bpp && ps <= (pw + 256) * bpp &&
+          h[o + ARM_HND_PLANE_INTS] == 0) {
+         mesa_logi("ARM gralloc: plane_info found at magic+%d (%ux%u, stride %u)", o, pw, ph, ps);
+         plane0 = o;
+      }
+   }
    if (plane0 < 0) {
       mesa_loge("ARM gralloc: no plane layout matches the handle (%ux%u, format 0x%x)", width,
                 height, format);
+      /* Dump the handle so the layout of this allocator can be added. */
+      mesa_loge("ARM gralloc: numFds %d numInts %d, magic at data[%d]", handle->numFds,
+                handle->numInts, m);
+      for (int i = handle->numFds; i < total; i += 8) {
+         char line[160];
+         int len = snprintf(line, sizeof(line), "ARM gralloc: data[%2d]:", i);
+         for (int j = i; j < total && j < i + 8 && len < (int)sizeof(line); j++)
+            len += snprintf(line + len, sizeof(line) - len, " %08x", (uint32_t)handle->data[j]);
+         mesa_loge("%s", line);
+      }
       return -EINVAL;
    }
    const uint32_t stride = h[plane0];
@@ -280,7 +304,7 @@ arm_gralloc_get_buffer_info(struct u_gralloc_buffer_handle *hnd,
    int stored_format = format;
    if (alloc_format & ARM_ALLOC_FORMAT_AFBC) {
       const uint32_t alloc_hal = (uint32_t)alloc_format;
-      const bool mtk_afbc = plane0 == arm_hnd_plane0[1] &&
+      const bool mtk_afbc = plane0 != arm_hnd_plane0[0] &&
                             (alloc_format >> 32) == ARM_MTK_AFBC_ALLOC_BITS &&
                             ((alloc_hal == (uint32_t)format &&
                               (format == HAL_PIXEL_FORMAT_RGBA_8888 ||
